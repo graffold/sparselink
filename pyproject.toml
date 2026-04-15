@@ -20,7 +20,7 @@ dependencies = [
 sparselink-bench = "sparselink.bench.cli:main"
 sparselink-benchmark = "sparselink.bench.run_benchmark:main"
 sparselink-dashboard = "sparselink.bench.dashboard:main"
-sparselink-tui = "sparselink.bench.tui:main"
+sparselink-tui = "sparselink.tui:main"
 
 [project.optional-dependencies]
 causal = ["causal-learn"]

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""sparselink TUI — graphical CLI for benchmarking network inference methods.
+"""sparselink TUI — graphical CLI for sparse network inference.
 
 Usage::
 
-    sparselink-tui                          # interactive mode
-    sparselink-tui bench --tier fast        # run synthetic benchmark
-    sparselink-tui bench-gs --sizes N50     # run GeneSpider benchmark
-    sparselink-tui show results.json        # render previous results
+    sparselink-tui                              # interactive mode
+    sparselink-tui status                       # check methods, MLX, deps
+    sparselink-tui infer data.csv --method lasso
+    sparselink-tui bench --tier fast
     sparselink-tui dashboard -i results.json
+    sparselink-tui show results.json
+    sparselink-tui methods                      # list all methods
 """
 
 from __future__ import annotations
@@ -15,14 +17,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
 
+import numpy as np
 from rich.console import Console
-from rich.live import Live
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -64,7 +63,7 @@ BANNER2 = [
 def _print_banner() -> None:
     for a, b in zip(BANNER, BANNER2):
         console.print(f"[{TEAL}]{a}[/][{INDIGO}]{b}[/]")
-    console.print(f"  [{BOLD}]sparselink[/]  [{DIM}]network inference benchmark suite[/]")
+    console.print(f"  [{BOLD}]sparselink[/]  [{DIM}]network inference toolkit[/]")
     console.print()
 
 
@@ -85,7 +84,6 @@ def _bar(value: float, width: int = 20) -> str:
 
 
 def _pick_multi(label: str, options: dict[str, str], default: str = "") -> list[str]:
-    """Prompt user to pick one or more options by key. Returns selected values."""
     for k, v in options.items():
         console.print(f"    [{INDIGO}]{k}[/] [{DIM}]{v}[/]")
     raw = Prompt.ask(f"  [{DIM}]{label} (comma-separated)[/]", default=default)
@@ -100,20 +98,19 @@ def _pick_one(label: str, options: dict[str, str], default: str = "") -> str:
     return options.get(raw.strip(), options.get(default, ""))
 
 
-# ── Result rendering ─────────────────────────────────────────────────────
+# ── Render results ────────────────────────────────────────────────────────
 
 def _render_results(data: list[dict], title: str = "Results") -> None:
     if not data:
         console.print("[dim]No results[/]")
         return
 
-    import numpy as np
     ok = [r for r in data if not r.get("error")]
     errs = [r for r in data if r.get("error")]
     methods = sorted(set(r["method"] for r in ok))
     metrics = ["auroc", "aupr", "f1", "mcc"]
 
-    t = Table(title=f"🧬 {title}", title_style="bold #14B8A6", border_style="dim")
+    t = Table(title=f"🧬 {title}", title_style=TEAL, border_style="dim")
     t.add_column("Method", style="bold")
     for m in metrics:
         t.add_column(m.upper(), justify="right")
@@ -160,110 +157,142 @@ def _render_results(data: list[dict], title: str = "Results") -> None:
             console.print(st)
 
 
-# ── Benchmark config builder ─────────────────────────────────────────────
+# ── Infer command ─────────────────────────────────────────────────────────
+
+def _cmd_infer(args: argparse.Namespace) -> None:
+    """Infer a network from a data file."""
+    import warnings
+    warnings.simplefilter("ignore")
+    from sparselink import get_method, list_methods
+    import sparselink.methods  # noqa: F401
+
+    # Load data
+    path = Path(args.file)
+    if path.suffix == ".csv":
+        import pandas as pd
+        df = pd.read_csv(path)
+        X = df.select_dtypes(include=[np.number]).values
+        feature_names = list(df.select_dtypes(include=[np.number]).columns)
+    elif path.suffix in (".tsv", ".txt"):
+        import pandas as pd
+        df = pd.read_csv(path, sep="\t")
+        X = df.select_dtypes(include=[np.number]).values
+        feature_names = list(df.select_dtypes(include=[np.number]).columns)
+    elif path.suffix == ".npy":
+        X = np.load(path)
+        feature_names = [f"V{i}" for i in range(X.shape[1])]
+    else:
+        console.print(f"[{ROSE}]Unsupported format: {path.suffix}. Use .csv, .tsv, .txt, or .npy[/]")
+        return
+
+    console.print(f"  [{TEAL}]Data[/]    {path.name}: {X.shape[0]} samples × {X.shape[1]} features")
+    console.print(f"  [{TEAL}]Method[/]  {args.method}")
+
+    method = get_method(args.method)
+    with console.status(f"[{TEAL}]Running {args.method}...[/]"):
+        result = method().fit(X)
+
+    adj = result.adjacency_matrix
+    n_edges = np.count_nonzero(adj) - np.count_nonzero(np.diag(adj))
+    console.print(f"  [{GREEN}]✓[/] {n_edges} edges inferred")
+
+    # Show top edges
+    edges = result.edge_list if hasattr(result, "edge_list") and result.edge_list else []
+    if not edges:
+        mask = ~np.eye(adj.shape[0], dtype=bool)
+        idx = np.argsort(-np.abs(adj[mask]))
+        rows_i, cols_j = np.where(mask)
+        edges = [(rows_i[i], cols_j[i], adj[rows_i[i], cols_j[i]]) for i in idx[:20]]
+
+    t = Table(title="Top Edges", title_style=TEAL, border_style="dim")
+    t.add_column("Source", style="bold")
+    t.add_column("Target", style="bold")
+    t.add_column("Weight", justify="right")
+    for src, tgt, w in edges[:15]:
+        sn = feature_names[src] if src < len(feature_names) else str(src)
+        tn = feature_names[tgt] if tgt < len(feature_names) else str(tgt)
+        t.add_row(sn, tn, f"{w:.4f}")
+    console.print(t)
+
+    # Save
+    if args.output:
+        np.save(args.output, adj)
+        console.print(f"  [{DIM}]Adjacency saved to {args.output}[/]")
+
+
+# ── Methods command ───────────────────────────────────────────────────────
+
+def _cmd_methods(args: argparse.Namespace) -> None:
+    from sparselink import list_methods
+    import sparselink.methods  # noqa: F401
+
+    t = Table(title="Available Methods", title_style=TEAL, border_style="dim")
+    t.add_column("Name", style="bold")
+    t.add_column("Category", style=DIM)
+
+    categories = {
+        "lasso": "regression", "elastic_net": "regression", "ridge": "regression",
+        "lsco": "regression", "tigress": "stability selection",
+        "genie3": "tree-based", "clr": "information theory",
+        "partial_correlation": "correlation",
+        "glasso": "graphical model", "glasso_stars": "graphical model",
+        "neighborhood_selection": "graphical model",
+        "pcmci": "causal (time-series)", "granger_causality": "causal (time-series)",
+        "transfer_entropy": "causal (time-series)",
+        "pc": "constraint-based", "fci": "constraint-based",
+        "notears": "continuous optimization", "dag_gnn": "deep learning",
+        "bdeu": "bayesian", "bge": "bayesian",
+    }
+    for m in sorted(list_methods()):
+        t.add_row(m, categories.get(m, ""))
+    console.print(t)
+
+
+# ── Benchmark config ──────────────────────────────────────────────────────
 
 def _configure_synthetic() -> argparse.Namespace:
-    """Interactive config builder for synthetic benchmark."""
-    console.print(f"\n  [{TEAL}]Configure Synthetic Benchmark[/]\n")
+    console.print(f"\n  [{TEAL}]Configure Benchmark[/]\n")
 
-    # A: Method tier
     console.print(f"  [{TEAL}]A) Method tier[/]")
     tiers = _pick_multi("Tiers", {
         "1": "fast", "2": "medium", "3": "slow", "4": "very_slow",
     }, default="1")
     tier = ",".join(tiers) if tiers else "fast"
 
-    # B: Network size
     console.print(f"\n  [{TEAL}]B) Network size (genes)[/]")
-    genes = _pick_one("Genes", {
-        "1": "20", "2": "50", "3": "100",
-    }, default="2")
+    genes = _pick_one("Genes", {"1": "20", "2": "50", "3": "100"}, default="2")
 
-    # C: Sparsities
     console.print(f"\n  [{TEAL}]C) Sparsity levels[/]")
-    sp_choices = _pick_multi("Sparsities", {
-        "1": "0.2", "2": "0.4", "3": "0.6",
-    }, default="1,2,3")
+    sp = _pick_multi("Sparsities", {"1": "0.02", "2": "0.06", "3": "0.1"}, default="1,2,3")
 
-    # D: SNR levels
     console.print(f"\n  [{TEAL}]D) SNR levels[/]")
-    snr_choices = _pick_multi("SNR", {
-        "1": "0.1", "2": "1.0", "3": "10.0",
-    }, default="1,2,3")
+    snr = _pick_multi("SNR", {"1": "0.1", "2": "1.0", "3": "10.0"}, default="1,2,3")
 
-    # E: Datasets
     console.print(f"\n  [{TEAL}]E) Replicates[/]")
-    n_datasets = int(Prompt.ask(f"  [{DIM}]Number of datasets[/]", default="5"))
-
-    # F: Timeout
+    n_ds = int(Prompt.ask(f"  [{DIM}]Number of datasets[/]", default="5"))
     timeout = int(Prompt.ask(f"\n  [{DIM}]Timeout per method (seconds)[/]", default="60"))
-
-    # G: Output
     output = Prompt.ask(f"  [{DIM}]Output file[/]", default="benchmark_results.json")
 
     console.print()
     return argparse.Namespace(
-        tier=tier,
-        n_genes=int(genes),
-        n_samples=int(genes) * 4,
-        n_datasets=n_datasets,
-        sparsities=[float(s) for s in sp_choices] if sp_choices else [0.2, 0.4, 0.6],
-        snr_levels=[float(s) for s in snr_choices] if snr_choices else [0.1, 1.0, 10.0],
-        seed=42,
-        timeout=timeout,
-        output=output,
+        tier=tier, n_genes=int(genes), n_samples=int(genes) * 4,
+        n_datasets=n_ds,
+        sparsities=[float(s) for s in sp] if sp else [0.02, 0.06, 0.1],
+        snr_levels=[float(s) for s in snr] if snr else [0.1, 1.0, 10.0],
+        seed=42, timeout=timeout, output=output,
     )
 
 
-def _configure_genespider() -> argparse.Namespace:
-    """Interactive config builder for GeneSpider benchmark."""
-    console.print(f"\n  [{TEAL}]Configure GeneSpider Benchmark[/]\n")
-
-    # A: Method tier
-    console.print(f"  [{TEAL}]A) Method tier[/]")
-    tiers = _pick_multi("Tiers", {
-        "1": "fast", "2": "medium", "3": "slow",
-    }, default="1")
-    tier = ",".join(tiers) if tiers else "fast"
-
-    # B: Network sizes
-    console.print(f"\n  [{TEAL}]B) Network sizes[/]")
-    sizes = _pick_multi("Sizes", {
-        "1": "N10", "2": "N50", "3": "N100",
-    }, default="2")
-    sizes_str = ",".join(sizes) if sizes else "N50"
-
-    # C: Max datasets
-    console.print(f"\n  [{TEAL}]C) Max datasets per size[/]")
-    max_ds = int(Prompt.ask(f"  [{DIM}]0 = all[/]", default="0"))
-
-    # D: Timeout
-    timeout = int(Prompt.ask(f"\n  [{DIM}]Timeout per method (seconds)[/]", default="120"))
-
-    # E: Output
-    output = Prompt.ask(f"  [{DIM}]Output file[/]", default="benchmark_genespider.json")
-
-    console.print()
-    return argparse.Namespace(
-        tier=tier, sizes=sizes_str, max_datasets=max_ds,
-        timeout=timeout, output=output,
-    )
-
-
-# ── Live benchmark runners ───────────────────────────────────────────────
+# ── Benchmark runner ──────────────────────────────────────────────────────
 
 def _run_benchmark_live(args: argparse.Namespace) -> None:
-    """Run synthetic benchmark with live progress."""
     import warnings
     warnings.simplefilter("ignore")
 
-    from sparselink.bench.run_benchmark import (
-        TIERS, RunResult, run_single,
-    )
+    from sparselink.bench.run_benchmark import TIERS, run_single
     from sparselink.bench.synthetic import generate_expression, generate_network
     from sparselink import list_methods
     import sparselink.methods  # noqa: F401
-    import numpy as np
 
     selected_tiers = [t.strip() for t in args.tier.split(",")]
     methods: list[str] = []
@@ -272,10 +301,9 @@ def _run_benchmark_live(args: argparse.Namespace) -> None:
     registered = set(list_methods())
     methods = [m for m in methods if m in registered]
 
-    sparsities = getattr(args, "sparsities", [0.2, 0.4, 0.6])
+    sparsities = getattr(args, "sparsities", [0.02, 0.06, 0.1])
     snr_levels = getattr(args, "snr_levels", [0.1, 1.0, 10.0])
     topologies = ["random", "scalefree", "smallworld"]
-
     total = len(methods) * len(topologies) * len(sparsities) * len(snr_levels) * args.n_datasets
 
     console.print(f"  [{TEAL}]Methods[/]     {', '.join(methods)}")
@@ -285,16 +313,13 @@ def _run_benchmark_live(args: argparse.Namespace) -> None:
     console.print(f"  [{TEAL}]Genes[/]       {args.n_genes}")
     console.print(f"  [{TEAL}]Datasets[/]    {args.n_datasets}")
     console.print(f"  [{TEAL}]Total runs[/]  {total}")
-    console.print(f"  [{TEAL}]Timeout[/]     {args.timeout}s")
-    console.print()
+    console.print(f"  [{TEAL}]Timeout[/]     {args.timeout}s\n")
 
     progress = Progress(
         SpinnerColumn(style=TEAL),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(bar_width=30, complete_style=TEAL, finished_style=GREEN),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=console,
+        MofNCompleteColumn(), TimeElapsedColumn(), console=console,
     )
 
     results: list[dict] = []
@@ -316,87 +341,13 @@ def _run_benchmark_live(args: argparse.Namespace) -> None:
                             results.append(asdict(r))
                             progress.advance(task)
 
-    _render_results(results, f"Synthetic Benchmark ({total} runs)")
-
+    _render_results(results, f"Benchmark ({total} runs)")
     with open(args.output, "w") as f:
         json.dump(results, f, indent=2)
     console.print(f"\n  [{DIM}]Results saved to {args.output}[/]")
 
 
-def _run_genespider_live(args: argparse.Namespace) -> None:
-    """Run GeneSpider benchmark with live progress (requires pyGS)."""
-    try:
-        from benchmark_genespider import (
-            TIERS, _list_datasets, load_dataset, run_single,
-        )
-    except ImportError:
-        console.print(f"  [{ROSE}]✗ GeneSpider benchmark requires pyGS.[/]")
-        console.print(f"  [{DIM}]Install pyGS or run from the pyGS repo directory.[/]")
-        return
-
-    import warnings
-    warnings.simplefilter("ignore")
-
-    from sparselink import list_methods
-    import sparselink.methods  # noqa: F401
-
-    selected_tiers = [t.strip() for t in args.tier.split(",")]
-    methods: list[str] = []
-    for t in selected_tiers:
-        methods.extend(TIERS.get(t, []))
-    registered = set(list_methods())
-    methods = [m for m in methods if m in registered]
-
-    sizes = [s.strip() for s in args.sizes.split(",")]
-
-    console.print(f"  [{TEAL}]Methods[/]  {', '.join(methods)}")
-    console.print(f"  [{TEAL}]Sizes[/]    {sizes}")
-    console.print(f"  [{TEAL}]Timeout[/]  {args.timeout}s")
-    console.print()
-
-    progress = Progress(
-        SpinnerColumn(style=TEAL),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(bar_width=30, complete_style=TEAL, finished_style=GREEN),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=console,
-    )
-
-    results: list[dict] = []
-
-    for size in sizes:
-        console.print(f"  [{INDIGO}]Fetching {size} datasets...[/]")
-        datasets = _list_datasets(size)
-        if args.max_datasets > 0:
-            datasets = datasets[:args.max_datasets]
-
-        total = len(datasets) * len(methods)
-        console.print(f"  [{DIM}]{len(datasets)} datasets × {len(methods)} methods = {total} runs[/]")
-
-        with progress:
-            task = progress.add_task(f"{size}", total=total)
-            for ds_meta in datasets:
-                try:
-                    X, P, A_true, topology, net_name = load_dataset(ds_meta, size)
-                except Exception:
-                    progress.advance(task, len(methods))
-                    continue
-                for method_name in methods:
-                    snr = ds_meta["snr"]
-                    progress.update(task, description=f"{method_name:20s} {topology}/SNR={snr}")
-                    r = run_single(method_name, X, A_true, ds_meta, topology, net_name, args.timeout, P)
-                    results.append(asdict(r))
-                    progress.advance(task)
-
-    _render_results(results, f"GeneSpider Benchmark ({len(results)} runs)")
-
-    with open(args.output, "w") as f:
-        json.dump(results, f, indent=2)
-    console.print(f"\n  [{DIM}]Results saved to {args.output}[/]")
-
-
-# ── Commands ──────────────────────────────────────────────────────────────
+# ── Other commands ────────────────────────────────────────────────────────
 
 def _cmd_show(args: argparse.Namespace) -> None:
     with open(args.file) as f:
@@ -424,7 +375,7 @@ def _cmd_status(args: argparse.Namespace) -> None:
         for m in methods:
             mb.add(f"[{GREEN}]✓[/] {m}")
     except Exception as e:
-        tree.add(f"[{ROSE}]✗ sparselink not importable: {e}[/]")
+        tree.add(f"[{ROSE}]✗ {e}[/]")
 
     accel = tree.add("Acceleration")
     try:
@@ -441,13 +392,6 @@ def _cmd_status(args: argparse.Namespace) -> None:
         except ImportError:
             deps.add(f"[dim]○[/] {label} — pip install sparselink[{label}]")
 
-    cache = Path(".gs_cache")
-    if cache.exists():
-        n = len(list(cache.glob("*.json")))
-        tree.add(f"[{GREEN}]✓[/] GeneSpider cache: {n} files")
-    else:
-        tree.add("[dim]○[/] No GeneSpider cache")
-
     console.print(tree)
 
 
@@ -455,10 +399,11 @@ def _cmd_status(args: argparse.Namespace) -> None:
 
 _MENU = {
     "1": ("status",    "Show system status & available methods"),
-    "2": ("bench",     "Run synthetic benchmark"),
-    "3": ("bench-gs",  "Run GeneSpider benchmark"),
-    "4": ("dashboard", "Generate interactive HTML dashboard"),
-    "5": ("show",      "Render a previous result JSON"),
+    "2": ("methods",   "List all inference methods"),
+    "3": ("infer",     "Infer network from data file"),
+    "4": ("bench",     "Run synthetic benchmark"),
+    "5": ("dashboard", "Generate interactive HTML dashboard"),
+    "6": ("show",      "Render a previous result JSON"),
 }
 
 
@@ -491,20 +436,24 @@ def _interactive() -> None:
 
             if cmd == "status":
                 _cmd_status(argparse.Namespace())
-
+            elif cmd == "methods":
+                _cmd_methods(argparse.Namespace())
+            elif cmd == "infer":
+                path = Prompt.ask(f"  [{DIM}]Data file (.csv, .tsv, .npy)[/]")
+                if not path:
+                    continue
+                from sparselink import list_methods
+                import sparselink.methods  # noqa: F401
+                method = Prompt.ask(f"  [{DIM}]Method[/]", default="genie3")
+                output = Prompt.ask(f"  [{DIM}]Save adjacency to (.npy, empty=skip)[/]", default="")
+                _cmd_infer(argparse.Namespace(file=path, method=method, output=output or None))
             elif cmd == "bench":
                 ns = _configure_synthetic()
                 _run_benchmark_live(ns)
-
-            elif cmd == "bench-gs":
-                ns = _configure_genespider()
-                _run_genespider_live(ns)
-
             elif cmd == "dashboard":
                 inp = Prompt.ask(f"  [{DIM}]Input JSON[/]", default="benchmark_results.json")
                 out = Prompt.ask(f"  [{DIM}]Output HTML[/]", default="benchmark_dashboard.html")
                 _cmd_dashboard(argparse.Namespace(input=inp, output=out, no_open=False))
-
             elif cmd == "show":
                 path = Prompt.ask(f"  [{DIM}]Path to result JSON[/]")
                 if path:
@@ -522,6 +471,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="sparselink-tui", description="sparselink graphical CLI")
     subs = parser.add_subparsers(dest="command")
 
+    # infer
+    ip = subs.add_parser("infer", help="Infer network from data file")
+    ip.add_argument("file", help="Data file (.csv, .tsv, .npy)")
+    ip.add_argument("-m", "--method", default="genie3")
+    ip.add_argument("-o", "--output", default=None, help="Save adjacency matrix (.npy)")
+
+    # bench
     bp = subs.add_parser("bench", help="Run synthetic benchmark")
     bp.add_argument("--tier", default="fast")
     bp.add_argument("--n-genes", type=int, default=50)
@@ -531,21 +487,20 @@ def main() -> None:
     bp.add_argument("--timeout", type=int, default=60)
     bp.add_argument("-o", "--output", default="benchmark_results.json")
 
-    gp = subs.add_parser("bench-gs", help="Run GeneSpider benchmark")
-    gp.add_argument("--tier", default="fast")
-    gp.add_argument("--sizes", default="N50")
-    gp.add_argument("--max-datasets", type=int, default=0)
-    gp.add_argument("--timeout", type=int, default=120)
-    gp.add_argument("-o", "--output", default="benchmark_genespider.json")
-
+    # show
     sp = subs.add_parser("show", help="Render previous results")
     sp.add_argument("file", help="Path to result JSON")
 
+    # dashboard
     dp = subs.add_parser("dashboard", help="Generate interactive HTML dashboard")
     dp.add_argument("-i", "--input", default="benchmark_results.json")
     dp.add_argument("-o", "--output", default="benchmark_dashboard.html")
     dp.add_argument("--no-open", action="store_true")
 
+    # methods
+    subs.add_parser("methods", help="List all inference methods")
+
+    # status
     subs.add_parser("status", help="Show system status")
 
     args = parser.parse_args()
@@ -555,14 +510,16 @@ def main() -> None:
         return
 
     _print_banner()
-    if args.command == "bench":
+    if args.command == "infer":
+        _cmd_infer(args)
+    elif args.command == "bench":
         _run_benchmark_live(args)
-    elif args.command == "bench-gs":
-        _run_genespider_live(args)
     elif args.command == "show":
         _cmd_show(args)
     elif args.command == "dashboard":
         _cmd_dashboard(args)
+    elif args.command == "methods":
+        _cmd_methods(args)
     elif args.command == "status":
         _cmd_status(args)
 
