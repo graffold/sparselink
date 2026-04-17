@@ -76,14 +76,23 @@ print(f"AUROC={metrics.auroc:.3f}  F1={metrics.f1:.3f}")
 ### CLI
 
 ```bash
-# Batch benchmark
-sparselink-bench --methods lasso elastic_net genie3 --n-datasets 10
+# Interactive mode
+sparselink
 
-# Exhaustive benchmark with tiers and timeout
-sparselink-benchmark --tier fast,medium --timeout 60
+# Infer a network from data
+sparselink infer data.csv --method lasso
 
-# Interactive TUI
-sparselink-tui
+# Run benchmark
+sparselink bench --tier fast,medium --timeout 60
+
+# List available methods
+sparselink methods
+
+# System status
+sparselink status
+
+# Show previous results
+sparselink show benchmark_results.json
 ```
 
 ## Evaluation Metrics

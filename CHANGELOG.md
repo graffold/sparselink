@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **Breaking:** NestBoot integration removed from `BenchmarkConfig` and `run_benchmark` — fields `bootstrap`, `n_bootstraps`, `n_nestings`, `fdr` and the corresponding CLI flags are no longer available; use `NestBoot` directly via the Python API instead
-- CLI flags `--bootstrap`, `--n-bootstraps`, `--n-nestings`, `--fdr` removed from `sparselink-bench`
+- CLI flags `--bootstrap`, `--n-bootstraps`, `--n-nestings`, `--fdr` removed from `sparselink bench`
 
 ### Changed (TUI)
 - TUI benchmark wizard: "Network size (genes)" renamed to "Network size (nodes)"

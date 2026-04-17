@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""sparselink TUI — graphical CLI for sparse network inference.
+"""sparselink — CLI for sparse network inference.
 
 Usage::
 
-    sparselink-tui                              # interactive mode
-    sparselink-tui status                       # check methods, MLX, deps
-    sparselink-tui infer data.csv --method lasso
-    sparselink-tui bench --tier fast
-    sparselink-tui show results.json
-    sparselink-tui methods                      # list all methods
+    sparselink                                  # interactive mode
+    sparselink status                           # check methods, MLX, deps
+    sparselink infer data.csv --method lasso
+    sparselink bench --tier fast
+    sparselink show results.json
+    sparselink methods                          # list all methods
 """
 
 from __future__ import annotations
@@ -45,23 +45,25 @@ TEXT = "#FAFAFA"
 DIM = "#71717A"
 BOLD = f"bold {TEXT}"
 
-BANNER = [
-    " ▄▄▄▄  ▄▄▄▄   ▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄▄▄▄ ",
-    " █▀▀▀  █▀ ▀█  █▀ █  █▀ ▀▄ █▀▀▀  █▀▀▀ ",
-    " ▀▀▀█  █▀▀▀   █▀▀█  █▀▀▄  ▀▀▀█  █▀▀  ",
-    " ▄▄▄█▀ █      █  █  █  █  ▄▄▄█▀ █▄▄▄ ",
+BANNER_SPARSE = [
+    "███████ ██████   █████  ██████  ███████ ███████",
+    "██      ██   ██ ██   ██ ██   ██ ██      ██     ",
+    "███████ ██████  ███████ ██████  ███████ █████  ",
+    "     ██ ██      ██   ██ ██   ██      ██ ██     ",
+    "███████ ██      ██   ██ ██   ██ ███████ ███████",
 ]
-BANNER2 = [
-    " █     ▀ ▄▄▄  █  ▄ ",
-    " █     █ █  █  █▄▀  ",
-    " █     █ █  █  █ ▀▄ ",
-    " █▄▄▄▀ █ █  █  █  █ ",
+BANNER_LINK = [
+    "██      ██ ███    ██ ██   ██",
+    "██      ██ ████   ██ ██  ██ ",
+    "██      ██ ██ ██  ██ █████  ",
+    "██      ██ ██  ██ ██ ██  ██ ",
+    "███████ ██ ██   ████ ██   ██",
 ]
 
 
 def _print_banner() -> None:
-    for a, b in zip(BANNER, BANNER2):
-        console.print(f"[{TEAL}]{a}[/][{INDIGO}]{b}[/]")
+    for a, b in zip(BANNER_SPARSE, BANNER_LINK):
+        console.print(f"  [{TEAL}]{a}[/] [{INDIGO}]{b}[/]")
     console.print(f"  [{BOLD}]sparselink[/]  [{DIM}]network inference toolkit[/]")
     console.print()
 
@@ -85,16 +87,23 @@ def _bar(value: float, width: int = 20) -> str:
 def _pick_multi(label: str, options: dict[str, str], default: str = "") -> list[str]:
     for k, v in options.items():
         console.print(f"    [{INDIGO}]{k}[/] [{DIM}]{v}[/]")
-    raw = Prompt.ask(f"  [{DIM}]{label} (comma-separated)[/]", default=default)
-    keys = [k.strip() for k in raw.split(",")]
-    return [options[k] for k in keys if k in options]
+    raw = Prompt.ask(f"  [{DIM}]{label} (comma-separated, or enter values directly)[/]", default=default)
+    tokens = [t.strip() for t in raw.split(",")]
+    result: list[str] = []
+    for t in tokens:
+        if t in options:
+            result.append(options[t])
+        elif t:
+            result.append(t)
+    return result
 
 
 def _pick_one(label: str, options: dict[str, str], default: str = "") -> str:
     for k, v in options.items():
         console.print(f"    [{INDIGO}]{k}[/] [{DIM}]{v}[/]")
-    raw = Prompt.ask(f"  [{DIM}]{label}[/]", default=default)
-    return options.get(raw.strip(), options.get(default, ""))
+    raw = Prompt.ask(f"  [{DIM}]{label} (or enter a value directly)[/]", default=default)
+    raw = raw.strip()
+    return options.get(raw, raw if raw else options.get(default, ""))
 
 
 # ── Render results ────────────────────────────────────────────────────────
@@ -459,7 +468,7 @@ def _interactive() -> None:
 # ── CLI entrypoint ────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="sparselink-tui", description="sparselink graphical CLI")
+    parser = argparse.ArgumentParser(prog="sparselink", description="sparselink — network inference toolkit")
     subs = parser.add_subparsers(dest="command")
 
     # infer
