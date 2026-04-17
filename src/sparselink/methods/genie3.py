@@ -36,7 +36,7 @@ class GENIE3Method(InferenceMethod):
         self.random_state = random_state
 
     def fit(self, X: InputData, y: InputData | None = None) -> InferenceResult:
-        """Fit Random Forest per gene to infer importance-based adjacency.
+        """Fit Random Forest per feature to infer importance-based adjacency.
 
         Args:
             X: Data matrix (samples x features).

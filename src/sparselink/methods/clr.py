@@ -26,7 +26,7 @@ class CLRMethod(InferenceMethod):
         self.n_bins = n_bins
 
     def fit(self, X: InputData, y: InputData | None = None) -> InferenceResult:
-        """Compute CLR network from expression data.
+        """Compute CLR network from data.
 
         Args:
             X: Data matrix (samples x features).

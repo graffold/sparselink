@@ -26,7 +26,7 @@ class ElasticNetMethod(InferenceMethod):
         self.l1_ratio = l1_ratio
 
     def fit(self, X: InputData, y: InputData | None = None) -> InferenceResult:
-        """Fit Elastic Net gene-by-gene.
+        """Fit Elastic Net feature-by-feature.
 
         Args:
             X: Data matrix (samples x features).
@@ -61,7 +61,7 @@ class RidgeMethod(InferenceMethod):
         self.alpha = alpha
 
     def fit(self, X: InputData, y: InputData | None = None) -> InferenceResult:
-        """Fit Ridge regression gene-by-gene.
+        """Fit Ridge regression feature-by-feature.
 
         Args:
             X: Data matrix (samples x features).

@@ -1,74 +1,119 @@
 # sparselink
 
-Domain-agnostic sparse network inference from tabular data. 20 methods behind a unified `fit(X) → adjacency_matrix` interface.
+Domain-agnostic sparse network inference from tabular data.
+
+sparselink provides a unified Python interface for 20+ network inference algorithms — from LASSO and graphical models to causal discovery and deep learning approaches. All methods share a single `fit(X) -> InferenceResult` API, making it easy to swap algorithms, benchmark them on synthetic data, and compare results.
 
 ## Installation
 
 ```bash
-pip install sparselink          # core
-pip install "sparselink[causal]"  # + PC, FCI
-pip install "sparselink[deep]"    # + DAG-GNN (torch)
+pip install sparselink
+```
+
+Optional extras:
+
+```bash
+pip install sparselink[causal]   # PC, FCI (causal-learn)
+pip install sparselink[deep]     # DAG-GNN (PyTorch)
+pip install sparselink[dev]      # pytest, mypy, ruff
 ```
 
 ## Quick Start
 
 ```python
 import numpy as np
-from sparselink import get_method, list_methods
+from sparselink import get_method
 
-print(list_methods())
-# ['lasso', 'elastic_net', 'ridge', 'lsco', 'clr', 'genie3', 'tigress',
-#  'partial_correlation', 'graphical_lasso', 'glasso_stars', 'neighborhood_selection',
-#  'pcmci', 'granger', 'transfer_entropy', 'pc', 'fci', 'notears', 'dag_gnn', 'bdeu', 'bge']
+X = np.random.default_rng(42).standard_normal((100, 20))
 
-X = np.random.randn(100, 10)
-result = get_method("lasso")(alpha=0.1).fit(X)
-print(result.adjacency_matrix.shape)  # (10, 10)
+method = get_method("lasso")
+result = method(alpha=0.01).fit(X)
+
+print(result.adjacency_matrix.shape)  # (20, 20)
 print(result.edge_list[:5])           # [(src, tgt, weight), ...]
 ```
 
-## Interactive TUI
-
-```bash
-sparselink-tui                    # interactive menu
-sparselink-tui status             # check methods, MLX, deps
-sparselink-tui bench --tier fast  # run benchmark with live progress
-sparselink-tui dashboard          # generate HTML dashboard
-```
-
-## Benchmarking
-
-```python
-from sparselink import get_method
-from sparselink.bench import generate_network, generate_expression, evaluate
-
-A_true = generate_network(n_genes=50, topology="scalefree", sparsity=0.06)
-X = generate_expression(A_true, n_samples=150, snr=10.0)
-
-result = get_method("genie3")().fit(X)
-metrics = evaluate(A_true, result.adjacency_matrix)
-print(f"AUROC={metrics.auroc:.3f}  F1={metrics.f1:.3f}  MCC={metrics.mcc:.3f}")
-```
-
-Synthetic data follows the [GeneSpider](https://bitbucket.org/sonnhammergrni/) protocol: directed networks with self-regulation, sparse identity perturbations, and chi²-scaled SNR.
-
-## Methods
+## Available Methods
 
 | Category | Methods |
-|----------|---------|
-| Regression | Lasso, Elastic Net, Ridge, LSCO, TIGRESS |
-| Tree-based | GENIE3 |
-| Information theory | CLR |
-| Graphical models | Graphical Lasso, GLASSO+StARS, Neighborhood Selection |
-| Correlation | Partial Correlation |
-| Causal (time-series) | PCMCI, Granger, Transfer Entropy |
+|---|---|
+| Regularization | Lasso, Elastic Net, Ridge, LSCO |
+| Information-theoretic | CLR, Partial Correlation |
+| Graphical models | Graphical LASSO, GLASSO+StARS, Neighborhood Selection |
+| Tree / stability | GENIE3, TIGRESS |
+| Causal (time-series) | PCMCI, Granger Causality, Transfer Entropy |
 | Constraint-based | PC, FCI |
 | Continuous optimization | NOTEARS, DAG-GNN |
 | Bayesian | BDeu, BGe |
 
-## Apple Silicon Acceleration
+```python
+from sparselink import list_methods
+print(list_methods())
+```
 
-On macOS with MLX installed, matrix operations (matmul, covariance, Gram matrix) are automatically accelerated on the GPU via `sparselink.accel`.
+## Method Registry
+
+Methods are registered via the `@registry.register` decorator and discovered automatically at import time. Use `get_method(name)` to retrieve any method by its string name — no direct imports needed in application code.
+
+## Benchmarking
+
+sparselink includes a benchmarking suite with synthetic network/data generation and evaluation metrics for comparing algorithm performance.
+
+### Python API
+
+```python
+from sparselink.bench import generate_network, generate_data, evaluate
+from sparselink import get_method
+
+net = generate_network(20, topology="scalefree", sparsity=0.1, seed=0)
+X = generate_data(net, n_samples=100, noise_std=0.1, seed=0)
+
+result = get_method("genie3")().fit(X)
+metrics = evaluate(net, result.adjacency_matrix)
+print(f"AUROC={metrics.auroc:.3f}  F1={metrics.f1:.3f}")
+```
+
+### CLI
+
+```bash
+# Batch benchmark
+sparselink-bench --methods lasso elastic_net genie3 --n-datasets 10
+
+# Exhaustive benchmark with tiers and timeout
+sparselink-benchmark --tier fast,medium --timeout 60
+
+# Interactive TUI
+sparselink-tui
+```
+
+## Evaluation Metrics
+
+- AUROC, AUPR (threshold-free)
+- Precision, Recall, F1, FDR, MCC (best over threshold sweep)
+- R² (edge weight accuracy)
+
+## Project Structure
+
+```
+src/sparselink/
+├── base.py          # InferenceMethod ABC
+├── types.py         # AdjacencyMatrix, EdgeList, InferenceResult
+├── registry.py      # @registry.register decorator + discovery
+├── accel.py         # Optional MLX acceleration (Apple Silicon)
+├── methods/         # One module per algorithm
+└── bench/           # Synthetic data, metrics, runner, CLI
+```
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+
+pytest                       # tests + coverage (80% gate)
+mypy src/                    # strict type checking
+ruff check src/ tests/       # lint
+ruff format src/ tests/      # format
+```
 
 ## License
 

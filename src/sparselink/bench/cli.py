@@ -24,13 +24,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--n-datasets", type=int, default=5, help="Number of synthetic datasets."
     )
-    parser.add_argument("--n-genes", type=int, default=20, help="Genes per dataset.")
+    parser.add_argument("--n-nodes", type=int, default=20, help="Nodes per dataset.")
     parser.add_argument(
         "--n-samples", type=int, default=100, help="Samples per dataset."
     )
     parser.add_argument("--topology", default="random", choices=["random", "scalefree"])
     parser.add_argument("--sparsity", type=float, default=0.2)
-    parser.add_argument("--snr", type=float, default=10.0)
+    parser.add_argument("--noise-std", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--output", "-o", default=None, help="Output JSON file (default: stdout)."
@@ -45,11 +45,11 @@ def main(argv: list[str] | None = None) -> None:
     config = BenchmarkConfig(
         methods=methods,
         n_datasets=args.n_datasets,
-        n_genes=args.n_genes,
+        n_nodes=args.n_nodes,
         n_samples=args.n_samples,
         topology=args.topology,
         sparsity=args.sparsity,
-        snr=args.snr,
+        noise_std=args.noise_std,
         seed=args.seed,
     )
 

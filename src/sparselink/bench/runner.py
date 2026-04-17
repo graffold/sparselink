@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from sparselink.bench.metrics import MetricsResult, evaluate
-from sparselink.bench.synthetic import generate_expression, generate_network
+from sparselink.bench.synthetic import generate_data, generate_network
 from sparselink.registry import get_method
 
 
@@ -17,11 +17,11 @@ class BenchmarkConfig:
 
     methods: list[str]
     n_datasets: int = 5
-    n_genes: int = 20
+    n_nodes: int = 20
     n_samples: int = 100
     topology: str = "random"
     sparsity: float = 0.2
-    snr: float = 10.0
+    noise_std: float = 0.1
     seed: int = 42
 
 
@@ -49,13 +49,16 @@ def run_benchmark(config: BenchmarkConfig) -> list[BenchmarkResult]:
     for ds_idx in range(config.n_datasets):
         ds_seed = int(rng.integers(0, 2**31))
         true_net = generate_network(
-            config.n_genes,
+            config.n_nodes,
             topology=config.topology,
             sparsity=config.sparsity,
             seed=ds_seed,
         )
-        X = generate_expression(
-            true_net, n_samples=config.n_samples, snr=config.snr, seed=ds_seed
+        X = generate_data(
+            true_net,
+            n_samples=config.n_samples,
+            noise_std=config.noise_std,
+            seed=ds_seed,
         )
 
         for method_name in config.methods:

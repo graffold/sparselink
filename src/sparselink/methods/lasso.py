@@ -14,7 +14,7 @@ from sparselink.types import InferenceResult, InputData
 
 @registry.register
 class LassoMethod(InferenceMethod):
-    """Infer sparse network via LASSO regression (gene-by-gene)."""
+    """Infer sparse network via LASSO regression (feature-by-feature)."""
 
     name = "lasso"
 
@@ -27,7 +27,7 @@ class LassoMethod(InferenceMethod):
 
         Args:
             X: Data matrix (samples x features).
-            y: Optional perturbation matrix. If None, uses X as both features and targets.
+            y: Optional target matrix. If None, uses X as both features and targets.
         """
         X_arr = self._to_array(X)
         n_features = X_arr.shape[1]

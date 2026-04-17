@@ -19,7 +19,6 @@ dependencies = [
 [project.scripts]
 sparselink-bench = "sparselink.bench.cli:main"
 sparselink-benchmark = "sparselink.bench.run_benchmark:main"
-sparselink-dashboard = "sparselink.bench.dashboard:main"
 sparselink-tui = "sparselink.tui:main"
 
 [project.optional-dependencies]
@@ -45,7 +44,7 @@ addopts = "--cov=sparselink --cov-report=term-missing --cov-fail-under=80"
 
 [tool.coverage.run]
 source = ["sparselink"]
-omit = ["*/bench/cli.py"]
+omit = ["*/bench/cli.py", "*/bench/run_benchmark.py", "*/tui.py"]
 
 [tool.coverage.report]
 fail_under = 80

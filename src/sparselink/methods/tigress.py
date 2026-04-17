@@ -29,7 +29,7 @@ class TIGRESSMethod(InferenceMethod):
         self.random_state = random_state
 
     def fit(self, X: InputData, y: InputData | None = None) -> InferenceResult:
-        """Fit stability selection per gene to infer adjacency.
+        """Fit stability selection per feature to infer adjacency.
 
         Args:
             X: Data matrix (samples x features).

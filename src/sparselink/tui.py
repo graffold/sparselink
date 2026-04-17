@@ -7,7 +7,6 @@ Usage::
     sparselink-tui status                       # check methods, MLX, deps
     sparselink-tui infer data.csv --method lasso
     sparselink-tui bench --tier fast
-    sparselink-tui dashboard -i results.json
     sparselink-tui show results.json
     sparselink-tui methods                      # list all methods
 """
@@ -110,7 +109,7 @@ def _render_results(data: list[dict], title: str = "Results") -> None:
     methods = sorted(set(r["method"] for r in ok))
     metrics = ["auroc", "aupr", "f1", "mcc"]
 
-    t = Table(title=f"🧬 {title}", title_style=TEAL, border_style="dim")
+    t = Table(title=title, title_style=TEAL, border_style="dim")
     t.add_column("Method", style="bold")
     for m in metrics:
         t.add_column(m.upper(), justify="right")
@@ -250,7 +249,7 @@ def _cmd_methods(args: argparse.Namespace) -> None:
 
 # ── Benchmark config ──────────────────────────────────────────────────────
 
-def _configure_synthetic() -> argparse.Namespace:
+def _configure_benchmark() -> argparse.Namespace:
     console.print(f"\n  [{TEAL}]Configure Benchmark[/]\n")
 
     console.print(f"  [{TEAL}]A) Method tier[/]")
@@ -259,26 +258,27 @@ def _configure_synthetic() -> argparse.Namespace:
     }, default="1")
     tier = ",".join(tiers) if tiers else "fast"
 
-    console.print(f"\n  [{TEAL}]B) Network size (genes)[/]")
-    genes = _pick_one("Genes", {"1": "20", "2": "50", "3": "100"}, default="2")
+    console.print(f"\n  [{TEAL}]B) Network size (nodes)[/]")
+    nodes = _pick_one("Nodes", {"1": "20", "2": "50", "3": "100"}, default="2")
 
     console.print(f"\n  [{TEAL}]C) Sparsity levels[/]")
     sp = _pick_multi("Sparsities", {"1": "0.02", "2": "0.06", "3": "0.1"}, default="1,2,3")
 
-    console.print(f"\n  [{TEAL}]D) SNR levels[/]")
-    snr = _pick_multi("SNR", {"1": "0.1", "2": "1.0", "3": "10.0"}, default="1,2,3")
+    console.print(f"\n  [{TEAL}]D) Noise levels[/]")
+    noise = _pick_multi("Noise std", {"1": "0.01", "2": "0.1", "3": "1.0"}, default="1,2,3")
 
     console.print(f"\n  [{TEAL}]E) Replicates[/]")
     n_ds = int(Prompt.ask(f"  [{DIM}]Number of datasets[/]", default="5"))
     timeout = int(Prompt.ask(f"\n  [{DIM}]Timeout per method (seconds)[/]", default="60"))
+
     output = Prompt.ask(f"  [{DIM}]Output file[/]", default="benchmark_results.json")
 
     console.print()
     return argparse.Namespace(
-        tier=tier, n_genes=int(genes), n_samples=int(genes) * 4,
+        tier=tier, n_nodes=int(nodes), n_samples=int(nodes) * 4,
         n_datasets=n_ds,
         sparsities=[float(s) for s in sp] if sp else [0.02, 0.06, 0.1],
-        snr_levels=[float(s) for s in snr] if snr else [0.1, 1.0, 10.0],
+        noise_levels=[float(s) for s in noise] if noise else [0.01, 0.1, 1.0],
         seed=42, timeout=timeout, output=output,
     )
 
@@ -290,7 +290,7 @@ def _run_benchmark_live(args: argparse.Namespace) -> None:
     warnings.simplefilter("ignore")
 
     from sparselink.bench.run_benchmark import TIERS, run_single
-    from sparselink.bench.synthetic import generate_expression, generate_network
+    from sparselink.bench.synthetic import generate_data, generate_network
     from sparselink import list_methods
     import sparselink.methods  # noqa: F401
 
@@ -302,18 +302,19 @@ def _run_benchmark_live(args: argparse.Namespace) -> None:
     methods = [m for m in methods if m in registered]
 
     sparsities = getattr(args, "sparsities", [0.02, 0.06, 0.1])
-    snr_levels = getattr(args, "snr_levels", [0.1, 1.0, 10.0])
+    noise_levels = getattr(args, "noise_levels", [0.01, 0.1, 1.0])
     topologies = ["random", "scalefree", "smallworld"]
-    total = len(methods) * len(topologies) * len(sparsities) * len(snr_levels) * args.n_datasets
+    total = len(methods) * len(topologies) * len(sparsities) * len(noise_levels) * args.n_datasets
 
-    console.print(f"  [{TEAL}]Methods[/]     {', '.join(methods)}")
-    console.print(f"  [{TEAL}]Topologies[/]  {topologies}")
-    console.print(f"  [{TEAL}]Sparsities[/]  {sparsities}")
-    console.print(f"  [{TEAL}]SNR levels[/]  {snr_levels}")
-    console.print(f"  [{TEAL}]Genes[/]       {args.n_genes}")
-    console.print(f"  [{TEAL}]Datasets[/]    {args.n_datasets}")
-    console.print(f"  [{TEAL}]Total runs[/]  {total}")
-    console.print(f"  [{TEAL}]Timeout[/]     {args.timeout}s\n")
+    console.print(f"  [{TEAL}]Methods[/]       {', '.join(methods)}")
+    console.print(f"  [{TEAL}]Topologies[/]    {topologies}")
+    console.print(f"  [{TEAL}]Sparsities[/]    {sparsities}")
+    console.print(f"  [{TEAL}]Noise levels[/]  {noise_levels}")
+    console.print(f"  [{TEAL}]Nodes[/]         {args.n_nodes}")
+    console.print(f"  [{TEAL}]Datasets[/]      {args.n_datasets}")
+    console.print(f"  [{TEAL}]Total runs[/]    {total}")
+    console.print(f"  [{TEAL}]Timeout[/]       {args.timeout}s")
+    console.print()
 
     progress = Progress(
         SpinnerColumn(style=TEAL),
@@ -329,15 +330,15 @@ def _run_benchmark_live(args: argparse.Namespace) -> None:
         task = progress.add_task("Benchmarking", total=total)
         for topo in topologies:
             for sp in sparsities:
-                for snr in snr_levels:
+                for noise_std in noise_levels:
                     for ds_idx in range(args.n_datasets):
                         ds_seed = int(rng.integers(0, 2**31))
-                        true_net = generate_network(args.n_genes, topology=topo, sparsity=sp, seed=ds_seed)
-                        X = generate_expression(true_net, n_samples=args.n_samples, snr=snr, seed=ds_seed)
+                        true_net = generate_network(args.n_nodes, topology=topo, sparsity=sp, seed=ds_seed)
+                        X = generate_data(true_net, n_samples=args.n_samples, noise_std=noise_std, seed=ds_seed)
                         for method_name in methods:
-                            progress.update(task, description=f"{method_name:20s} {topo}/sp={sp}/SNR={snr}")
+                            progress.update(task, description=f"{method_name:20s} {topo}/sp={sp}/noise={noise_std}")
                             r = run_single(method_name, X, true_net, ds_idx,
-                                           args.n_genes, args.n_samples, topo, sp, snr, args.timeout)
+                                           args.n_nodes, args.n_samples, topo, sp, noise_std, args.timeout)
                             results.append(asdict(r))
                             progress.advance(task)
 
@@ -356,12 +357,7 @@ def _cmd_show(args: argparse.Namespace) -> None:
 
 
 def _cmd_dashboard(args: argparse.Namespace) -> None:
-    from sparselink.bench.dashboard import main as dash_main
-    dash_main(["-i", args.input, "-o", args.output])
-    console.print(f"  [{GREEN}]✓[/] Dashboard written to {args.output}")
-    if not args.no_open:
-        import subprocess
-        subprocess.run(["open", args.output], check=False)
+    console.print(f"  [{ROSE}]Dashboard has been moved to the GeneSpider CLI.[/]")
 
 
 def _cmd_status(args: argparse.Namespace) -> None:
@@ -402,8 +398,7 @@ _MENU = {
     "2": ("methods",   "List all inference methods"),
     "3": ("infer",     "Infer network from data file"),
     "4": ("bench",     "Run synthetic benchmark"),
-    "5": ("dashboard", "Generate interactive HTML dashboard"),
-    "6": ("show",      "Render a previous result JSON"),
+    "5": ("show",      "Render a previous result JSON"),
 }
 
 
@@ -448,12 +443,8 @@ def _interactive() -> None:
                 output = Prompt.ask(f"  [{DIM}]Save adjacency to (.npy, empty=skip)[/]", default="")
                 _cmd_infer(argparse.Namespace(file=path, method=method, output=output or None))
             elif cmd == "bench":
-                ns = _configure_synthetic()
+                ns = _configure_benchmark()
                 _run_benchmark_live(ns)
-            elif cmd == "dashboard":
-                inp = Prompt.ask(f"  [{DIM}]Input JSON[/]", default="benchmark_results.json")
-                out = Prompt.ask(f"  [{DIM}]Output HTML[/]", default="benchmark_dashboard.html")
-                _cmd_dashboard(argparse.Namespace(input=inp, output=out, no_open=False))
             elif cmd == "show":
                 path = Prompt.ask(f"  [{DIM}]Path to result JSON[/]")
                 if path:
@@ -480,7 +471,7 @@ def main() -> None:
     # bench
     bp = subs.add_parser("bench", help="Run synthetic benchmark")
     bp.add_argument("--tier", default="fast")
-    bp.add_argument("--n-genes", type=int, default=50)
+    bp.add_argument("--n-nodes", type=int, default=50)
     bp.add_argument("--n-samples", type=int, default=200)
     bp.add_argument("--n-datasets", type=int, default=5)
     bp.add_argument("--seed", type=int, default=42)
@@ -490,12 +481,6 @@ def main() -> None:
     # show
     sp = subs.add_parser("show", help="Render previous results")
     sp.add_argument("file", help="Path to result JSON")
-
-    # dashboard
-    dp = subs.add_parser("dashboard", help="Generate interactive HTML dashboard")
-    dp.add_argument("-i", "--input", default="benchmark_results.json")
-    dp.add_argument("-o", "--output", default="benchmark_dashboard.html")
-    dp.add_argument("--no-open", action="store_true")
 
     # methods
     subs.add_parser("methods", help="List all inference methods")
@@ -516,8 +501,6 @@ def main() -> None:
         _run_benchmark_live(args)
     elif args.command == "show":
         _cmd_show(args)
-    elif args.command == "dashboard":
-        _cmd_dashboard(args)
     elif args.command == "methods":
         _cmd_methods(args)
     elif args.command == "status":

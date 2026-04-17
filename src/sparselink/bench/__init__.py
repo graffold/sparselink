@@ -1,15 +1,13 @@
-"""sparselink.bench - Benchmarking and synthetic data for network inference."""
+"""sparselink.bench - Benchmarking for network inference algorithms."""
 
 from sparselink.bench.metrics import MetricsResult, evaluate
-from sparselink.bench.nestboot import NestBoot
 from sparselink.bench.runner import run_benchmark
-from sparselink.bench.synthetic import generate_expression, generate_network
+from sparselink.bench.synthetic import generate_data, generate_network
 
 __all__ = [
     "MetricsResult",
     "generate_network",
-    "generate_expression",
+    "generate_data",
     "evaluate",
-    "NestBoot",
     "run_benchmark",
 ]

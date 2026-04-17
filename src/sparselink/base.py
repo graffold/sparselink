@@ -28,7 +28,7 @@ class InferenceMethod(ABC):
 
         Args:
             X: Input data matrix (samples x features) as numpy array or DataFrame.
-            y: Optional target/perturbation matrix for supervised methods.
+            y: Optional target/response matrix for supervised methods.
 
         Returns:
             InferenceResult containing the inferred adjacency matrix.

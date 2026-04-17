@@ -18,7 +18,7 @@ import numpy as np
 
 from sparselink import list_methods
 from sparselink.bench.metrics import evaluate
-from sparselink.bench.synthetic import generate_expression, generate_network
+from sparselink.bench.synthetic import generate_data, generate_network
 from sparselink.registry import get_method
 
 import sparselink.methods  # noqa: F401
@@ -41,7 +41,7 @@ TIERS: dict[str, list[str]] = {
 }
 
 TOPOLOGIES = ["random", "scalefree", "smallworld"]
-SNR_LEVELS = [0.1, 1.0, 10.0]
+NOISE_LEVELS = [0.01, 0.1, 1.0]
 SPARSITIES = [0.2, 0.4, 0.6]
 
 
@@ -49,11 +49,11 @@ SPARSITIES = [0.2, 0.4, 0.6]
 class RunResult:
     method: str
     dataset_idx: int
-    n_genes: int
+    n_nodes: int
     n_samples: int
     topology: str
     sparsity: float
-    snr: float
+    noise_std: float
     auroc: float
     aupr: float
     precision: float
@@ -124,13 +124,13 @@ def _fit_best(method_name: str, X: np.ndarray, true_net: np.ndarray) -> tuple:
 
 def run_single(
     method_name: str, X: np.ndarray, true_net: np.ndarray,
-    dataset_idx: int, n_genes: int, n_samples: int,
-    topology: str, sparsity: float, snr: float, timeout: int,
+    dataset_idx: int, n_nodes: int, n_samples: int,
+    topology: str, sparsity: float, noise_std: float, timeout: int,
 ) -> RunResult:
     """Run one method with a SIGALRM timeout."""
     base = dict(
-        method=method_name, dataset_idx=dataset_idx, n_genes=n_genes,
-        n_samples=n_samples, topology=topology, sparsity=sparsity, snr=snr,
+        method=method_name, dataset_idx=dataset_idx, n_nodes=n_nodes,
+        n_samples=n_samples, topology=topology, sparsity=sparsity, noise_std=noise_std,
     )
     fail = dict(auroc=0, aupr=0, precision=0, recall=0, f1=0, fdr=1, mcc=0, r2=0)
 
@@ -169,7 +169,7 @@ def run_single(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Exhaustive sparselink benchmark")
-    parser.add_argument("--n-genes", type=int, default=50)
+    parser.add_argument("--n-nodes", type=int, default=50)
     parser.add_argument("--n-samples", type=int, default=200)
     parser.add_argument("--n-datasets", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
@@ -189,22 +189,22 @@ def main(argv: list[str] | None = None) -> None:
     registered = set(list_methods())
     methods = [m for m in methods if m in registered]
 
-    total = len(methods) * len(TOPOLOGIES) * len(SPARSITIES) * len(SNR_LEVELS) * args.n_datasets
+    total = len(methods) * len(TOPOLOGIES) * len(SPARSITIES) * len(NOISE_LEVELS) * args.n_datasets
     print(f"Benchmark: {len(methods)} methods × {len(TOPOLOGIES)} topologies × "
-          f"{len(SPARSITIES)} sparsities × {len(SNR_LEVELS)} SNRs × "
+          f"{len(SPARSITIES)} sparsities × {len(NOISE_LEVELS)} noise levels × "
           f"{args.n_datasets} datasets = {total} runs")
-    print(f"Tiers:      {selected_tiers}")
-    print(f"Methods:    {methods}")
-    print(f"Topologies: {TOPOLOGIES}")
-    print(f"Sparsities: {SPARSITIES}")
-    print(f"SNR levels: {SNR_LEVELS}")
-    print(f"Timeout:    {args.timeout}s (hard kill)")
+    print(f"Tiers:        {selected_tiers}")
+    print(f"Methods:      {methods}")
+    print(f"Topologies:   {TOPOLOGIES}")
+    print(f"Sparsities:   {SPARSITIES}")
+    print(f"Noise levels: {NOISE_LEVELS}")
+    print(f"Timeout:      {args.timeout}s (hard kill)")
 
     try:
         import mlx.core  # noqa: F401
-        print("MLX:        detected ✓\n")
+        print("MLX:          detected ✓\n")
     except ImportError:
-        print("MLX:        not available (NumPy fallback)\n")
+        print("MLX:          not available (NumPy fallback)\n")
 
     rng = np.random.default_rng(args.seed)
     results: list[RunResult] = []
@@ -213,26 +213,26 @@ def main(argv: list[str] | None = None) -> None:
 
     for topology in TOPOLOGIES:
         for sparsity in SPARSITIES:
-            for snr in SNR_LEVELS:
+            for noise_std in NOISE_LEVELS:
                 for ds_idx in range(args.n_datasets):
                     ds_seed = int(rng.integers(0, 2**31))
                     true_net = generate_network(
-                        args.n_genes, topology=topology,
+                        args.n_nodes, topology=topology,
                         sparsity=sparsity, seed=ds_seed,
                     )
-                    X = generate_expression(
+                    X = generate_data(
                         true_net, n_samples=args.n_samples,
-                        snr=snr, seed=ds_seed,
+                        noise_std=noise_std, seed=ds_seed,
                     )
                     for method_name in methods:
                         done += 1
                         tag = (f"[{done}/{total}] {method_name:22s} "
-                               f"{topology}/sp={sparsity}/SNR={snr}/ds={ds_idx}")
+                               f"{topology}/sp={sparsity}/noise={noise_std}/ds={ds_idx}")
                         print(f"  {tag}", end=" … ", flush=True)
                         r = run_single(
                             method_name, X, true_net, ds_idx,
-                            args.n_genes, args.n_samples,
-                            topology, sparsity, snr, args.timeout,
+                            args.n_nodes, args.n_samples,
+                            topology, sparsity, noise_std, args.timeout,
                         )
                         if r.error:
                             print(r.error)

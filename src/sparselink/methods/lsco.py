@@ -26,7 +26,7 @@ class LSCOMethod(InferenceMethod):
 
         Args:
             X: Data matrix (samples x features).
-            y: Optional perturbation matrix. If None, uses pseudo-inverse of X.
+            y: Optional target matrix. If None, uses pseudo-inverse of X.
         """
         X_arr = self._to_array(X)
 
