@@ -17,6 +17,11 @@ from sparselink.methods.pc import PCMethod
 from sparselink.methods.pcmci import PCMCIMethod
 from sparselink.methods.tigress import TIGRESSMethod
 from sparselink.methods.transfer_entropy import TransferEntropy
+from sparselink.methods.sincerities import SINCERITIESMethod
+from sparselink.methods.pidc import PIDCMethod
+from sparselink.methods.leap import LEAPMethod
+from sparselink.methods.grisli import GRISLIMethod
+from sparselink.methods.dspin import DSPINMethod
 
 __all__ = [
     "LassoMethod",
@@ -39,4 +44,9 @@ __all__ = [
     "DAGGNNMethod",
     "BDeuMethod",
     "BGeMethod",
+    "SINCERITIESMethod",
+    "PIDCMethod",
+    "LEAPMethod",
+    "GRISLIMethod",
+    "DSPINMethod",
 ]
