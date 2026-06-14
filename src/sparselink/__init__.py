@@ -5,7 +5,7 @@ from sparselink.base import InferenceMethod
 from sparselink.registry import get_method, list_methods, registry
 from sparselink.types import AdjacencyMatrix, EdgeList, InferenceResult
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 __all__ = [
     "AdjacencyMatrix",

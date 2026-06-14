@@ -41,3 +41,5 @@ __all__ = [
     "BGeMethod",
     "PIDCMethod",
 ]
+from sparselink.methods.ensemble import EnsembleMethod
+from sparselink.methods.lasso_cv import LassoCVMethod
